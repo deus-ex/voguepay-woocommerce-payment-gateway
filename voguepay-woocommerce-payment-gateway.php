@@ -31,7 +31,7 @@ function woocommerce_voguepay_init() {
 			$this->id 					= 'tbz_voguepay_gateway';
     		$this->icon 				= apply_filters('woocommerce_vogueway_icon', plugins_url( 'assets/pay-via-voguepay.png' , __FILE__ ) );
 			$this->has_fields 			= false;
-        	$this->liveurl 				= 'https://voguepay.com/?p=linkToken'; 
+        	$this->liveurl 				= 'https://voguepay.com/pay/'; 
         	$this->method_title     	= 'VoguePay Payment Gateway';
         	$this->method_description  	= 'VoguePay Payment Gateway allows you to receive Mastercard, Verve Card and Visa Card Payments On your Woocommerce Powered Site.';
 
@@ -46,7 +46,8 @@ function woocommerce_voguepay_init() {
 			// Define user set variables
 			$this->title 					= $this->get_option( 'title' );
 			$this->description 				= $this->get_option( 'description' );
-			$this->voguePayMerchantId 		= $this->get_option( 'voguePayMerchantId' );
+			$this->voguePayMerchantId 			= $this->get_option( 'voguePayMerchantId' );
+			$this->voguePayDeveloperCode 			= $this->get_option( 'voguePayDeveloperCode' );	
 
 			//Actions
 			add_action('woocommerce_receipt_tbz_voguepay_gateway', array($this, 'receipt_page'));
@@ -103,7 +104,14 @@ function woocommerce_voguepay_init() {
 								'description' 	=> 'Enter Your VoguePay Merchant ID, this can be gotten on your account page when you login on VoguePay' ,
 								'default' 		=> '',
                     			'desc_tip'      => true
-							)			
+							),
+        'voguePayDeveloperCode' => array(
+              'title' => 'Developer Code',
+              'type' => 'text',
+              'description' => 'Enter the your voguepay developer code. If you don\'t have one, login to your voguepay merchant account,  click on Menu > CMS tools > Developer Codes' ,
+              'default' => '',
+              'desc_tip' => true
+            )			
 			);			
 		}
 
@@ -119,18 +127,20 @@ function woocommerce_voguepay_init() {
 
 			$order_total	= $order->get_total();
 			$merchantID 	= $this->voguePayMerchantId;
+			$developerCode 	= $this->voguePayDeveloperCode;
 			$memo        	= "Payment for Order ID: $order_id";
             $notify_url  	= str_replace( 'https:', 'http:', add_query_arg( 'wc-api', 'WC_Tbz_Voguepay_Gateway', home_url( '/' ) ) );
 
 			// voguepay Args
 			$voguepay_args = array(
 				'v_merchant_id' 		=> $merchantID,
-				'memo'					=> $memo,
-				'total' 				=> $order_total,
+				'memo'				=> $memo,
+				'total' 			=> $order_total,
 				'merchant_ref'			=> $order_id,
+        			'developer_code' 		=> $developerCode,
 				'notify_url'			=> $notify_url,
 				'success_url'			=> $notify_url,
-				'fail_url'				=> $notify_url
+				'fail_url'			=> $notify_url
 			);
 
 			$voguepay_args = apply_filters( 'woocommerce_voguepay_args', $voguepay_args );
@@ -195,9 +205,17 @@ function woocommerce_voguepay_init() {
 
 			if(isset($_POST['transaction_id']))
 			{
-				$transaction_id = $_POST['transaction_id'];
-				$json = wp_remote_get( 'https://voguepay.com/?v_transaction_id='.$transaction_id.'&type=json');
-				$transaction = json_decode($json['body'], true);
+			        $transaction_id = $_POST['transaction_id'];
+			        $checkDemo = substr( $transaction_id, 0, 4 );
+			        $requestURL = 'https://voguepay.com/?v_transaction_id=' . $transaction_id . '&type=json';
+			
+			        if ( strtolower( $checkDemo ) == 'demo' ) {
+			          $requestURL .= '&demo=true';
+			        }
+			
+			        $response = wp_remote_get( $requestURL );
+			
+			        $transaction = json_decode( $response['body'], true );
 
 				if($transaction['status'] == 'Approved')
 				{					
@@ -208,7 +226,8 @@ function woocommerce_voguepay_init() {
 		            $order 			= new WC_Order($order_id);
 		            $order_total	= $order->get_total();
 
-					$amount_paid 	= $transaction['total'];
+					// Actual amount paid by buyer
+					$amount_paid 	= $transaction['total_paid_by_buyer'];
 
 					// check if the amount paid is equal to the order amount.
 					if($order_total != $amount_paid)
